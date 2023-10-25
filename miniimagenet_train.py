@@ -46,7 +46,7 @@ def main():
         ('linear', [args.n_way, 32 * 5 * 5])
     ]
 
-    device = torch.device('cuda')
+    device = torch.device('cuda:1')
     maml = Meta(args, config).to(device)
 
     tmp = filter(lambda x: x.requires_grad, maml.parameters())
@@ -64,7 +64,7 @@ def main():
 
     for epoch in range(args.epoch//10000):
         # fetch meta_batchsz num of episode each time
-        db = DataLoader(mini, args.task_num, shuffle=True, num_workers=1, pin_memory=True)
+        db = DataLoader(mini, args.task_num, shuffle=True, num_workers=0, pin_memory=True)
 
         for step, (x_spt, y_spt, x_qry, y_qry) in enumerate(db):
 
@@ -76,7 +76,7 @@ def main():
                 print('step:', step, '\ttraining acc:', accs)
 
             if step % 500 == 0:  # evaluation
-                db_test = DataLoader(mini_test, 1, shuffle=True, num_workers=1, pin_memory=True)
+                db_test = DataLoader(mini_test, 1, shuffle=True, num_workers=0, pin_memory=True)
                 accs_all_test = []
 
                 for x_spt, y_spt, x_qry, y_qry in db_test:
