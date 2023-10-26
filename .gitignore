@@ -1,5 +1,6 @@
 backup
 miniimagenet/images
 omniglot
+dataset_pickle
 .idea
 __pycache__

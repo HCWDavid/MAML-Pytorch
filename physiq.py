@@ -8,23 +8,15 @@ from PIL import Image
 import csv
 import random
 
+import tqdm
 
-class MiniImagenet(Dataset):
-    """
-    put mini-imagenet files as :
-    root :
-        |- images/*.jpg includes all imgeas
-        |- train.csv
-        |- test.csv
-        |- val.csv
-    NOTICE: meta-learning is different from general supervised learning, especially the concept of batch and set.
-    batch: contains several sets
-    sets: conains n_way * k_shot for meta-train set, n_way * n_query for meta-test set.
-    """
+from custom_dataset import PHYSIQDataset
 
-    def __init__(self, root, mode, batchsz, n_way, k_shot, k_query, resize, startidx=0):
+
+class TimeSeriesDataset(Dataset):
+
+    def __init__(self, root, mode, batchsz, n_way, k_shot, k_query,resize=None, T=100, startidx=0):
         """
-
         :param root: root path of mini-imagenet
         :param mode: train, val or test
         :param batchsz: batch size of sets, not batch of imgs
@@ -34,65 +26,53 @@ class MiniImagenet(Dataset):
         :param resize: resize to
         :param startidx: start to index label from startidx
         """
-
         self.batchsz = batchsz  # batch of set, not batch of imgs
         self.n_way = n_way  # n-way
         self.k_shot = k_shot  # k-shot
         self.k_query = k_query  # for evaluation
         self.setsz = self.n_way * self.k_shot  # num of samples per set
         self.querysz = self.n_way * self.k_query  # number of samples per set for evaluation
-        self.resize = resize  # resize to
         self.startidx = startidx  # index label not from 0, but from startidx
-        print('shuffle DB :%s, b:%d, %d-way, %d-shot, %d-query, resize:%d' % (
-        mode, batchsz, n_way, k_shot, k_query, resize))
-
-        if mode == 'train':
-            self.transform = transforms.Compose([lambda x: Image.open(x).convert('RGB'),
-                                                 transforms.Resize((self.resize, self.resize)),
-                                                 # transforms.RandomHorizontalFlip(),
-                                                 # transforms.RandomRotation(5),
-                                                 transforms.ToTensor(),
-                                                 transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-                                                 ])
-        else:
-            self.transform = transforms.Compose([lambda x: Image.open(x).convert('RGB'),
-                                                 transforms.Resize((self.resize, self.resize)),
-                                                 transforms.ToTensor(),
-                                                 transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-                                                 ])
-
-        self.path = os.path.join(root, 'images')  # image path
-        csvdata = self.loadCSV(os.path.join(root, mode + '.csv'))  # csv path
-        self.data = []
-        self.img2label = {}
-        for i, (k, v) in enumerate(csvdata.items()):
-            self.data.append(v)  # [[img1, img2, ...], [img111, ...]]
-            self.img2label[k] = i + self.startidx  # {"img_name[:9]":label}
-            print(self.img2label[k])
-            print(k)
+        print('shuffle DB :%s, b:%d, %d-way, %d-shot, %d-query' % (
+        mode, batchsz, n_way, k_shot, k_query))
+        
+        
+        #TODO: should be ts2label but using img2label for now
+        self.data, self.img2label, self.ts2segms, self.ts = self.loadPHYSIQ()
         self.cls_num = len(self.data)
-
+        self.transform = transforms.Compose([lambda i: self.ts[i],
+                                                transforms.ToTensor()])
+                                                 
+        
+        
         self.create_batch(self.batchsz)
 
-    def loadCSV(self, csvf):
-        """
-        return a dict saving the information of csv
-        :param splitFile: csv file name
-        :return: {label:[file1, file2 ...]}
-        """
-        dictLabels = {}
-        with open(csvf) as csvfile:
-            csvreader = csv.reader(csvfile, delimiter=',')
-            next(csvreader, None)  # skip (filename, label)
-            for i, row in enumerate(csvreader):
-                filename = row[0]
-                label = row[1]
-                # append filename to current label
-                if label in dictLabels.keys():
-                    dictLabels[label].append(filename)
-                else:
-                    dictLabels[label] = [filename]
-        return dictLabels
+
+    def loadPHYSIQ(self, type='physiq'):
+        if type == 'physiq':
+            cd = PHYSIQDataset(y_label='all', train=None, slide_windows=True, window_size=200, window_step=200, min_rep=5, rep_step=1)
+        else:
+            raise AssertionError('Dataset type not supported')
+        data = [] # [[ts1, ts2, ...], [ts111, ...]]
+        ts2label = {}
+        ts2segms = {} # len(segmentations) = len(cd.x)
+        ts = []
+        for i, (x, y) in enumerate(zip(cd.x, cd.y)):
+            segm, task, subject = y
+
+            if int(task) >= len(data):
+                for i in range(int(task) - len(data) + 1):
+                    data.append([])
+            
+            
+            
+            data[int(task)].append(x)
+            ts2segms[i] = segm
+            ts2label[i] = int(subject)
+            ts.append(x)
+        return data, ts2label, ts2segms, ts
+
+
 
     def create_batch(self, batchsz):
         """
@@ -103,7 +83,7 @@ class MiniImagenet(Dataset):
         """
         self.support_x_batch = []  # support set batch
         self.query_x_batch = []  # query set batch
-        for b in range(batchsz):  # for each batch
+        for b in tqdm.tqdm(range(batchsz)):  # for each batch
             # 1.select n_way classes randomly
             selected_cls = np.random.choice(self.cls_num, self.n_way, False)  # no duplicate
             np.random.shuffle(selected_cls)
@@ -183,7 +163,6 @@ class MiniImagenet(Dataset):
 
 
 if __name__ == '__main__':
-    # the following episode is to view one set of images via tensorboard.
     from torchvision.utils import make_grid
     from matplotlib import pyplot as plt
     from tensorboardX import SummaryWriter
@@ -192,9 +171,10 @@ if __name__ == '__main__':
     plt.ion()
 
     tb = SummaryWriter('runs', 'miniimagenet')
-    mini = MiniImagenet('./miniimagenet/', mode='train', n_way=5, k_shot=1, k_query=1, batchsz=1000, resize=168)
+    mini = TimeSeriesDataset('./', mode='train', n_way=5, k_shot=1, k_query=1, batchsz=1000, resize=168)
 
     for i, set_ in enumerate(mini):
+        print(i)
         # support_x: [k_shot*n_way, 3, 84, 84]
         support_x, support_y, query_x, query_y = set_
 
