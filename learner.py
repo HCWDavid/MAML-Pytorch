@@ -36,6 +36,14 @@ class Learner(nn.Module):
                 self.vars.append(w)
                 # [ch_out]
                 self.vars.append(nn.Parameter(torch.zeros(param[0])))
+            elif name is 'conv1d':
+                # [ch_out, ch_in, kernelsz, kernelsz]
+                w = nn.Parameter(torch.ones(*param[:3]))
+                # gain=1 according to cbfin's implementation
+                torch.nn.init.kaiming_normal_(w)
+                self.vars.append(w)
+                # [ch_out]
+                self.vars.append(nn.Parameter(torch.zeros(param[0])))
 
             elif name is 'convt2d':
                 # [ch_in, ch_out, kernelsz, kernelsz, stride, padding]
@@ -69,7 +77,7 @@ class Learner(nn.Module):
 
 
             elif name in ['tanh', 'relu', 'upsample', 'avg_pool2d', 'max_pool2d',
-                          'flatten', 'reshape', 'leakyrelu', 'sigmoid']:
+                          'flatten', 'reshape', 'leakyrelu', 'sigmoid'] + ['upsample1d', 'avg_pool1d', 'max_pool1d']:
                 continue
             else:
                 raise NotImplementedError
@@ -92,7 +100,10 @@ class Learner(nn.Module):
                 tmp = 'convTranspose2d:(ch_in:%d, ch_out:%d, k:%dx%d, stride:%d, padding:%d)'\
                       %(param[0], param[1], param[2], param[3], param[4], param[5],)
                 info += tmp + '\n'
-
+            elif name == 'conv1d':
+                tmp = 'conv1d:(ch_in:%d, ch_out:%d, k:%d, stride:%d, padding:%d)'\
+                    %(param[1], param[0], param[2], param[3], param[4])
+                info += tmp + '\n'
             elif name is 'linear':
                 tmp = 'linear:(in:%d, out:%d)'%(param[1], param[0])
                 info += tmp + '\n'
@@ -105,8 +116,14 @@ class Learner(nn.Module):
             elif name is 'avg_pool2d':
                 tmp = 'avg_pool2d:(k:%d, stride:%d, padding:%d)'%(param[0], param[1], param[2])
                 info += tmp + '\n'
+            elif name == 'avg_pool1d':
+                tmp = 'avg_pool1d:(k:%d, stride:%d, padding:%d)'%(param[0], param[1], param[2])
+                info += tmp + '\n'
             elif name is 'max_pool2d':
                 tmp = 'max_pool2d:(k:%d, stride:%d, padding:%d)'%(param[0], param[1], param[2])
+                info += tmp + '\n'
+            elif name == 'max_pool1d':
+                tmp = 'max_pool1d:(k:%d, stride:%d, padding:%d)'%(param[0], param[1], param[2])
                 info += tmp + '\n'
             elif name in ['flatten', 'tanh', 'relu', 'upsample', 'reshape', 'sigmoid', 'use_logits', 'bn']:
                 tmp = name + ':' + str(tuple(param))
@@ -129,7 +146,7 @@ class Learner(nn.Module):
         :param bn_training: set False to not update
         :return: x, loss, likelihood, kld
         """
-
+        x = x.transpose(1, 2)
         if vars is None:
             vars = self.vars
 
@@ -137,50 +154,61 @@ class Learner(nn.Module):
         bn_idx = 0
 
         for name, param in self.config:
-            if name is 'conv2d':
+            if name == 'conv2d':
                 w, b = vars[idx], vars[idx + 1]
                 # remember to keep synchrozied of forward_encoder and forward_decoder!
                 x = F.conv2d(x, w, b, stride=param[4], padding=param[5])
                 idx += 2
                 # print(name, param, '\tout:', x.shape)
-            elif name is 'convt2d':
+            elif name == 'convt2d':
                 w, b = vars[idx], vars[idx + 1]
                 # remember to keep synchrozied of forward_encoder and forward_decoder!
                 x = F.conv_transpose2d(x, w, b, stride=param[4], padding=param[5])
                 idx += 2
                 # print(name, param, '\tout:', x.shape)
-            elif name is 'linear':
+            elif name == 'conv1d':
+                w, b = vars[idx], vars[idx + 1]
+                # remember to keep synchrozied of forward_encoder and forward_decoder!
+                # print('forward:', idx, x.norm().item())
+                x = F.conv1d(x, w, b, stride=param[3], padding=param[4])
+                idx += 2
+                # print(name, param, '\tout:', x.shape)
+            elif name == 'linear':
                 w, b = vars[idx], vars[idx + 1]
                 x = F.linear(x, w, b)
                 idx += 2
                 # print('forward:', idx, x.norm().item())
-            elif name is 'bn':
+            elif name == 'bn':
                 w, b = vars[idx], vars[idx + 1]
                 running_mean, running_var = self.vars_bn[bn_idx], self.vars_bn[bn_idx+1]
                 x = F.batch_norm(x, running_mean, running_var, weight=w, bias=b, training=bn_training)
                 idx += 2
                 bn_idx += 2
 
-            elif name is 'flatten':
-                # print(x.shape)
+            elif name == 'flatten':
+                # print('flatten', x.shape)
                 x = x.view(x.size(0), -1)
-            elif name is 'reshape':
+            elif name == 'reshape':
                 # [b, 8] => [b, 2, 2, 2]
                 x = x.view(x.size(0), *param)
-            elif name is 'relu':
+            elif name == 'relu':
                 x = F.relu(x, inplace=param[0])
-            elif name is 'leakyrelu':
+            elif name == 'leakyrelu':
                 x = F.leaky_relu(x, negative_slope=param[0], inplace=param[1])
-            elif name is 'tanh':
+            elif name == 'tanh':
                 x = F.tanh(x)
-            elif name is 'sigmoid':
+            elif name == 'sigmoid':
                 x = torch.sigmoid(x)
-            elif name is 'upsample':
+            elif name == 'upsample':
                 x = F.upsample_nearest(x, scale_factor=param[0])
-            elif name is 'max_pool2d':
+            elif name == 'max_pool2d':
                 x = F.max_pool2d(x, param[0], param[1], param[2])
-            elif name is 'avg_pool2d':
+            elif name == 'avg_pool2d':
                 x = F.avg_pool2d(x, param[0], param[1], param[2])
+            elif name == 'max_pool1d':
+                x = F.max_pool1d(x, param[0], param[1], param[2])
+            elif name == 'avg_pool1d':
+                x = F.avg_pool1d(x, param[0], param[1], param[2])
 
             else:
                 raise NotImplementedError

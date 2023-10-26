@@ -203,9 +203,11 @@ if __name__ == '__main__':
 
         plt.figure(1)
         plt.imshow(support_x.transpose(2, 0).numpy())
+        plt.title(f'{support_y.tolist()}')
         plt.pause(0.5)
         plt.figure(2)
         plt.imshow(query_x.transpose(2, 0).numpy())
+        plt.title(f'{query_y.tolist()}')
         plt.pause(0.5)
 
         tb.add_image('support_x', support_x)

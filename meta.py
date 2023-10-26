@@ -71,7 +71,9 @@ class Meta(nn.Module):
         :param y_qry:   [b, querysz]
         :return:
         """
-        task_num, setsz, c_, h, w = x_spt.size()
+        # NOTE: time series has 4 size and no reisze
+        task_num, setsz, c_, h = x_spt.size()
+        # task_num, setsz, c_, h, w = x_spt.size()
         querysz = x_qry.size(1)
 
         losses_q = [0 for _ in range(self.update_step + 1)]  # losses_q[i] is the loss on step i
@@ -156,7 +158,7 @@ class Meta(nn.Module):
         :param y_qry:   [querysz]
         :return:
         """
-        assert len(x_spt.shape) == 4
+        assert len(x_spt.shape) == 4 or len(x_spt.shape) == 3, 'x_spt shape should be 3 or 4 dimensional but got %d' % len(x_spt.shape)
 
         querysz = x_qry.size(0)
 

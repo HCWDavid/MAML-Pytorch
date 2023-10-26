@@ -8,6 +8,7 @@ import  random, sys, pickle
 import  argparse
 
 from meta import Meta
+from physiq import TimeSeriesDataset
 
 
 def mean_confidence_interval(accs, confidence=0.95):
@@ -25,28 +26,45 @@ def main():
 
     print(args)
 
+    # config = [
+    #     ('conv2d', [32, 3, 3, 3, 1, 0]),
+    #     ('relu', [True]),
+    #     ('bn', [32]),
+    #     ('max_pool2d', [2, 2, 0]),
+    #     ('conv2d', [32, 32, 3, 3, 1, 0]),
+    #     ('relu', [True]),
+    #     ('bn', [32]),
+    #     ('max_pool2d', [2, 2, 0]),
+    #     ('conv2d', [32, 32, 3, 3, 1, 0]),
+    #     ('relu', [True]),
+    #     ('bn', [32]),
+    #     ('max_pool2d', [2, 2, 0]),
+    #     ('conv2d', [32, 32, 3, 3, 1, 0]),
+    #     ('relu', [True]),
+    #     ('bn', [32]),
+    #     ('max_pool2d', [2, 1, 0]),
+    #     ('flatten', []),
+    #     ('linear', [args.n_way, 32 * 5 * 5])
+    # ]
+    #NOTE: Time series config:
     config = [
-        ('conv2d', [32, 3, 3, 3, 1, 0]),
+        ('conv1d', [16, 6, 5, 1, 0]),  # Use conv1d. 6 is the input channel size. Adjust other numbers as needed.
+        ('relu', [True]),
+        ('bn', [16]),
+        ('max_pool1d', [2, 2, 0]),
+        ('conv1d', [32, 16, 5, 1, 0]),
         ('relu', [True]),
         ('bn', [32]),
-        ('max_pool2d', [2, 2, 0]),
-        ('conv2d', [32, 32, 3, 3, 1, 0]),
+        ('max_pool1d', [2, 2, 0]),
+        ('conv1d', [64, 32, 5, 1, 0]),
         ('relu', [True]),
-        ('bn', [32]),
-        ('max_pool2d', [2, 2, 0]),
-        ('conv2d', [32, 32, 3, 3, 1, 0]),
-        ('relu', [True]),
-        ('bn', [32]),
-        ('max_pool2d', [2, 2, 0]),
-        ('conv2d', [32, 32, 3, 3, 1, 0]),
-        ('relu', [True]),
-        ('bn', [32]),
-        ('max_pool2d', [2, 1, 0]),
+        ('bn', [64]),
+        ('max_pool1d', [2, 2, 0]),
         ('flatten', []),
-        ('linear', [args.n_way, 32 * 5 * 5])
+        ('linear', [args.n_way, 64 * 21])  # 64 is the last number of channels, and 21. You might need to adjust this depending on the exact size after pooling.
     ]
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     maml = Meta(args, config).to(device)
 
     tmp = filter(lambda x: x.requires_grad, maml.parameters())
@@ -55,12 +73,15 @@ def main():
     print('Total trainable tensors:', num)
 
     # batchsz here means total episode number
-    mini = MiniImagenet('./miniimagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
-                        k_query=args.k_qry,
-                        batchsz=10000, resize=args.imgsz)
-    mini_test = MiniImagenet('./miniimagenet/', mode='test', n_way=args.n_way, k_shot=args.k_spt,
+    # mini = MiniImagenet('./miniimagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
+    #                     k_query=args.k_qry,
+    #                     batchsz=10000, resize=args.imgsz)
+    mini = TimeSeriesDataset('./', mode='train', n_way=args.n_way, k_shot=args.k_spt, 
                              k_query=args.k_qry,
-                             batchsz=100, resize=args.imgsz)
+                              batchsz=10000, resize=args.imgsz)
+    mini_test = TimeSeriesDataset('./', mode='test', n_way=args.n_way, k_shot=args.k_spt, 
+                             k_query=args.k_qry,
+                              batchsz=10000, resize=args.imgsz)
 
     for epoch in range(args.epoch//10000):
         # fetch meta_batchsz num of episode each time

@@ -40,7 +40,7 @@ class TimeSeriesDataset(Dataset):
         #TODO: should be ts2label but using img2label for now
         self.data, self.img2label, self.ts2segms, self.ts = self.loadPHYSIQ()
         self.cls_num = len(self.data)
-        print('class num:', self.cls_num)
+        print('class num:', self.cls_num, [len(v) for v in self.data])
         self.transform = transforms.Compose([lambda i: self.ts[i],])
                                                  
         
@@ -68,7 +68,7 @@ class TimeSeriesDataset(Dataset):
             
             data[int(task)].append(i)
             ts2segms[i] = segm
-            ts2label[i] = int(subject)
+            ts2label[i] = int(task)
             ts.append(x)
         return data, ts2label, ts2segms, ts
 
@@ -91,7 +91,7 @@ class TimeSeriesDataset(Dataset):
             query_x = []
             for cls in selected_cls:
                 # 2. select k_shot + k_query for each class
-                selected_imgs_idx = np.random.choice(len(self.data[cls]), self.k_shot + self.k_query, False)
+                selected_imgs_idx = np.random.choice(len(self.data[cls]), self.k_shot + self.k_query, False) 
                 np.random.shuffle(selected_imgs_idx)
                 indexDtrain = np.array(selected_imgs_idx[:self.k_shot])  # idx for Dtrain
                 indexDtest = np.array(selected_imgs_idx[self.k_shot:])  # idx for Dtest
@@ -102,7 +102,6 @@ class TimeSeriesDataset(Dataset):
             # shuffle the correponding relation between support set and query set
             random.shuffle(support_x)
             random.shuffle(query_x)
-            print(support_x, query_x)
             self.support_x_batch.append(support_x)  # append set to current sets
             self.query_x_batch.append(query_x)  # append sets to current sets
 
@@ -118,12 +117,13 @@ class TimeSeriesDataset(Dataset):
         # [setsz]
         support_y = np.zeros((self.setsz), dtype=np.intc)
         # [querysz, 3, resize, resize]
-        query_x = torch.FloatTensor(self.setsz, 200, 6)
+        query_x = torch.FloatTensor(self.querysz, 200, 6)
         # [querysz]
         query_y = np.zeros((self.querysz), dtype=np.intc)
         # making it flatten by appending 'item' which are just idex of the list of time series
         flatten_support_x = [item
                              for sublist in self.support_x_batch[index] for item in sublist]
+        
         support_y = np.array(
             [self.img2label[item]  # filename:n0153282900000005.jpg, the first 9 characters treated as label
              for sublist in self.support_x_batch[index] for item in sublist]).astype(np.int32)
@@ -132,7 +132,7 @@ class TimeSeriesDataset(Dataset):
                            for sublist in self.query_x_batch[index] for item in sublist]
         query_y = np.array([self.img2label[item]
                             for sublist in self.query_x_batch[index] for item in sublist]).astype(np.int32)
-
+        
         # print('global:', support_y, query_y)
         # support_y: [setsz]
         # query_y: [querysz]
@@ -150,7 +150,6 @@ class TimeSeriesDataset(Dataset):
 
         for i, path in enumerate(flatten_support_x):
             support_x[i] = self.transform(path)
-
         for i, path in enumerate(flatten_query_x):
             query_x[i] = self.transform(path)
         # print(support_set_y)
@@ -182,44 +181,24 @@ if __name__ == '__main__':
     from tensorboardX import SummaryWriter
     import time
 
-    tb = SummaryWriter('runs', 'physiq')
-    mini = TimeSeriesDataset('./', mode='train', n_way=5, k_shot=1, k_query=1, batchsz=1, resize=168)
+    tb = SummaryWriter(log_dir="runs/ts", comment='physiq')
+    #TODO: mode of train and val and test does not work yet and will make sure work for custom dataset of physiq
+    mini = TimeSeriesDataset('./', mode='train', n_way=5, k_shot=1, k_query=15, batchsz=1, resize=168)
 
     for i, set_ in enumerate(mini):
-        # support_x: [k_shot*n_way, 3, 84, 84]
         support_x, support_y, query_x, query_y = set_
-
-        # support_x = make_grid(support_x, nrow=2)
-        # query_x = make_grid(query_x, nrow=2)
+        print(query_x.shape)
         fig = visualize_time_series(support_x.numpy(), support_y.numpy())
         plt.pause(5)
-        tb.add_figure('support_x', plt.gcf())
+        tb.add_figure('support_x', fig, global_step=i)  # Added step
+        plt.close(fig)  # Close figure after adding it to tensorboard
 
         fig = visualize_time_series(query_x.numpy(), query_y.numpy())
         plt.pause(5)
-        tb.add_figure('query_x', plt.gcf())
-
-        # tb.add_image('support_x', support_x)
-        # tb.add_image('query_x', query_x)
+        tb.add_figure('query_x', fig, global_step=i)  # Added step
+        plt.close(fig)  # Close figure after adding it to tensorboard
 
         time.sleep(5)
 
     tb.close()
-
-    plt.switch_backend('agg')
-
-    fig = plt.figure()
-
-    c1 = plt.Circle((0.2, 0.5), 0.2, color='r')
-    c2 = plt.Circle((0.8, 0.5), 0.2, color='r')
-
-    ax = plt.gca()
-    ax.add_patch(c1)
-    ax.add_patch(c2)
-    plt.axis('scaled')
-
-
-    from tensorboardX import SummaryWriter
-    writer = SummaryWriter()
-    writer.add_figure('matplotlib', fig)
-    writer.close()
+    
