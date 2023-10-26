@@ -178,7 +178,7 @@ if __name__ == '__main__':
     # plt.ion()
     viz = visdom.Visdom(env='omniglot_view')
 
-    db = OmniglotNShot('db/omniglot', batchsz=20, n_way=5, k_shot=5, k_query=15, imgsz=64)
+    db = OmniglotNShot('db/omniglot', batchsz=1, n_way=5, k_shot=1, k_query=15, imgsz=64)
 
     for i in range(1000):
         x_spt, y_spt, x_qry, y_qry = db.next('train')

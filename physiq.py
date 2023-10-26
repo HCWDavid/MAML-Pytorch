@@ -40,8 +40,8 @@ class TimeSeriesDataset(Dataset):
         #TODO: should be ts2label but using img2label for now
         self.data, self.img2label, self.ts2segms, self.ts = self.loadPHYSIQ()
         self.cls_num = len(self.data)
-        self.transform = transforms.Compose([lambda i: self.ts[i],
-                                                transforms.ToTensor()])
+        print('class num:', self.cls_num)
+        self.transform = transforms.Compose([lambda i: self.ts[i],])
                                                  
         
         
@@ -66,7 +66,7 @@ class TimeSeriesDataset(Dataset):
             
             
             
-            data[int(task)].append(x)
+            data[int(task)].append(i)
             ts2segms[i] = segm
             ts2label[i] = int(subject)
             ts.append(x)
@@ -102,7 +102,7 @@ class TimeSeriesDataset(Dataset):
             # shuffle the correponding relation between support set and query set
             random.shuffle(support_x)
             random.shuffle(query_x)
-
+            print(support_x, query_x)
             self.support_x_batch.append(support_x)  # append set to current sets
             self.query_x_batch.append(query_x)  # append sets to current sets
 
@@ -112,24 +112,25 @@ class TimeSeriesDataset(Dataset):
         :param index:
         :return:
         """
+        # time series has no resize
         # [setsz, 3, resize, resize]
-        support_x = torch.FloatTensor(self.setsz, 3, self.resize, self.resize)
+        support_x = torch.FloatTensor(self.setsz, 200, 6)
         # [setsz]
         support_y = np.zeros((self.setsz), dtype=np.intc)
         # [querysz, 3, resize, resize]
-        query_x = torch.FloatTensor(self.querysz, 3, self.resize, self.resize)
+        query_x = torch.FloatTensor(self.setsz, 200, 6)
         # [querysz]
         query_y = np.zeros((self.querysz), dtype=np.intc)
-
-        flatten_support_x = [os.path.join(self.path, item)
+        # making it flatten by appending 'item' which are just idex of the list of time series
+        flatten_support_x = [item
                              for sublist in self.support_x_batch[index] for item in sublist]
         support_y = np.array(
-            [self.img2label[item[:9]]  # filename:n0153282900000005.jpg, the first 9 characters treated as label
+            [self.img2label[item]  # filename:n0153282900000005.jpg, the first 9 characters treated as label
              for sublist in self.support_x_batch[index] for item in sublist]).astype(np.int32)
 
-        flatten_query_x = [os.path.join(self.path, item)
+        flatten_query_x = [item
                            for sublist in self.query_x_batch[index] for item in sublist]
-        query_y = np.array([self.img2label[item[:9]]
+        query_y = np.array([self.img2label[item]
                             for sublist in self.query_x_batch[index] for item in sublist]).astype(np.int32)
 
         # print('global:', support_y, query_y)
@@ -161,6 +162,19 @@ class TimeSeriesDataset(Dataset):
         # as we have built up to batchsz of sets, you can sample some small batch size of sets.
         return self.batchsz
 
+def visualize_time_series(ts, ts_y=None):
+
+    fig, axes = plt.subplots(ts.shape[0], 1, figsize=(10, 12), sharex=True)
+
+    # Iterate over time series
+    for i in range(5):
+        # Iterate over channels within a time series
+        for j in range(6):
+            axes[i].plot(ts[i, :, j], label=f"Channel {j+1}")
+        axes[i].set_title(f"Time Series {i+1 }" + f'and y={ts_y[i]}' if ts_y is not None else "")
+        axes[i].legend()
+        
+    return fig
 
 if __name__ == '__main__':
     from torchvision.utils import make_grid
@@ -168,29 +182,44 @@ if __name__ == '__main__':
     from tensorboardX import SummaryWriter
     import time
 
-    plt.ion()
-
-    tb = SummaryWriter('runs', 'miniimagenet')
-    mini = TimeSeriesDataset('./', mode='train', n_way=5, k_shot=1, k_query=1, batchsz=1000, resize=168)
+    tb = SummaryWriter('runs', 'physiq')
+    mini = TimeSeriesDataset('./', mode='train', n_way=5, k_shot=1, k_query=1, batchsz=1, resize=168)
 
     for i, set_ in enumerate(mini):
-        print(i)
         # support_x: [k_shot*n_way, 3, 84, 84]
         support_x, support_y, query_x, query_y = set_
 
-        support_x = make_grid(support_x, nrow=2)
-        query_x = make_grid(query_x, nrow=2)
+        # support_x = make_grid(support_x, nrow=2)
+        # query_x = make_grid(query_x, nrow=2)
+        fig = visualize_time_series(support_x.numpy(), support_y.numpy())
+        plt.pause(5)
+        tb.add_figure('support_x', plt.gcf())
 
-        plt.figure(1)
-        plt.imshow(support_x.transpose(2, 0).numpy())
-        plt.pause(0.5)
-        plt.figure(2)
-        plt.imshow(query_x.transpose(2, 0).numpy())
-        plt.pause(0.5)
+        fig = visualize_time_series(query_x.numpy(), query_y.numpy())
+        plt.pause(5)
+        tb.add_figure('query_x', plt.gcf())
 
-        tb.add_image('support_x', support_x)
-        tb.add_image('query_x', query_x)
+        # tb.add_image('support_x', support_x)
+        # tb.add_image('query_x', query_x)
 
         time.sleep(5)
 
     tb.close()
+
+    plt.switch_backend('agg')
+
+    fig = plt.figure()
+
+    c1 = plt.Circle((0.2, 0.5), 0.2, color='r')
+    c2 = plt.Circle((0.8, 0.5), 0.2, color='r')
+
+    ax = plt.gca()
+    ax.add_patch(c1)
+    ax.add_patch(c2)
+    plt.axis('scaled')
+
+
+    from tensorboardX import SummaryWriter
+    writer = SummaryWriter()
+    writer.add_figure('matplotlib', fig)
+    writer.close()
